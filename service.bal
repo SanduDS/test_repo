@@ -1,36 +1,80 @@
-import ballerina/io;
-import ballerina/lang.runtime;
-import ballerina/task;
-import ballerina/time;
+import ballerina/graphql;
 
-// Creates a job to be executed by the scheduler.
-class Job {
+public type CovidEntry record {|
+    readonly string isoCode;
+    string country;
+    decimal cases?;
+    decimal deaths?;
+    decimal recovered?;
+    decimal active?;
+|};
 
-    *task:Job;
-    int i = 1;
+table<CovidEntry> key(isoCode) covidEntriesTable = table [
+    {isoCode: "AFG", country: "Afghanistan", cases: 159303, deaths: 7386, recovered: 146084, active: 5833},
+    {isoCode: "SL", country: "Sri Lanka", cases: 598536, deaths: 15243, recovered: 568637, active: 14656},
+    {isoCode: "US", country: "USA", cases: 69808350, deaths: 880976, recovered: 43892277, active: 25035097}
+];
 
-    // Executes this function when the scheduled trigger fires.
-    public function execute() {
-        self.i += 1;
-        io:println("MyCounter: ", self.i);
+public distinct service class CovidData {
+    private final readonly & CovidEntry entryRecord;
+
+    function init(CovidEntry entryRecord) {
+        self.entryRecord = entryRecord.cloneReadOnly();
     }
 
-    isolated function init(int i) {
-        self.i = i;
+    resource function get isoCode() returns string {
+        return self.entryRecord.isoCode;
+    }
+
+    resource function get country() returns string {
+        return self.entryRecord.country;
+    }
+
+    resource function get cases() returns decimal? {
+        if self.entryRecord.cases is decimal {
+            return self.entryRecord.cases / 1000;
+        }
+        return;
+    }
+
+    resource function get deaths() returns decimal? {
+        if self.entryRecord.deaths is decimal {
+            return self.entryRecord.deaths / 1000;
+        }
+        return;
+    }
+
+    resource function get recovered() returns decimal? {
+        if self.entryRecord.recovered is decimal {
+            return self.entryRecord.recovered / 1000;
+        }
+        return;
+    }
+
+    resource function get active() returns decimal? {
+        if self.entryRecord.active is decimal {
+            return self.entryRecord.active / 1000;
+        }
+        return;
     }
 }
 
-public function main() returns error? {
-    // Gets the current time.
-    time:Utc currentUtc = time:utcNow();
-    // Increases the time by three seconds to get the specified time for scheduling the job.
-    time:Utc newTime = time:utcAddSeconds(currentUtc, 3);
-    // Gets the `time:Civil` for the given time.
-    time:Civil time = time:utcToCivil(newTime);
+service /covid19 on new graphql:Listener(9000) {
+    resource function get all() returns CovidData[] {
+        CovidEntry[] covidEntries = covidEntriesTable.toArray().cloneReadOnly();
+        return covidEntries.map(entry => new CovidData(entry));
+    }
 
-    // Schedules the one-time job at the specified time.
-    _ = check task:scheduleOneTimeJob(new Job(0), time);
+    resource function get filter(string isoCode) returns CovidData? {
+        CovidEntry? covidEntry = covidEntriesTable[isoCode];
+        if covidEntry is CovidEntry {
+            return new (covidEntry);
+        }
+        return;
+    }
 
-    // Waits for five seconds.
-    runtime:sleep(5);
+    remote function add(CovidEntry entry) returns CovidData {
+        covidEntriesTable.add(entry);
+        return new CovidData(entry);
+    }
 }
